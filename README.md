@@ -1,16 +1,8 @@
 # frontendtask
 
-A new Flutter project.
+A Frontrend Flutter project.
 
-## Getting Started
+How to run: flutter pub get
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+![Screenshot 2025-07-05 235232](https://github.com/user-attachments/assets/22894aae-d996-4b09-ab80-732bb5b15f9e)
+![Screenshot 2025-07-05 235216](https://github.com/user-attachments/assets/adfa162c-2f57-43e4-bc85-162ff1a0fc21)
