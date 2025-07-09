@@ -80,12 +80,12 @@ class ReviewFormNotifier extends StateNotifier<ReviewFormState> {
 } 
 
 class DrawingSettings {
-  final Color color;
+  final Color? color;
   final double strokeWidth;
   final bool isEraser;
 
   const DrawingSettings({
-    this.color = Colors.red,
+    this.color,
     this.strokeWidth = 3.0,
     this.isEraser = false,
   });

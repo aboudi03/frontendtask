@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
@@ -10,18 +11,18 @@ import 'features/artifact/presentation/widgets/artifact_portal_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Hive
+
+  // Initialize Hive on all platforms
   await initializeHive();
-  
-  // Set fixed window size for desktop
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+
+  // Set fixed window size for desktop only
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     await windowManager.ensureInitialized();
     await windowManager.setSize(const Size(1280, 900));
     await windowManager.setResizable(false);
     await windowManager.setTitle(AppConstants.appName);
   }
-  
+
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -47,7 +48,6 @@ class _MyAppState extends ConsumerState<MyApp> {
       final dataSource = ref.read(artifactLocalDataSourceProvider);
       await dataSource.initializeSampleData();
       print('Sample data initialized successfully');
-      
       // Trigger refresh of artifacts
       ref.read(refreshTriggerProvider.notifier).state++;
     } catch (e) {

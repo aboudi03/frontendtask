@@ -2,21 +2,52 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/review_provider.dart';
 
-typedef EraserPressedCallback = void Function();
+// typedef EraserPressedCallback = void Function();
 
-class DrawingToolbar extends ConsumerWidget {
-  final EraserPressedCallback? onEraserPressed;
-  const DrawingToolbar({super.key, this.onEraserPressed});
+class DrawingToolbar extends ConsumerStatefulWidget {
+  const DrawingToolbar({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DrawingToolbar> createState() => _DrawingToolbarState();
+}
+
+class _DrawingToolbarState extends ConsumerState<DrawingToolbar> {
+  @override
+  void initState() {
+    super.initState();
+    // Optionally, sync with provider if needed
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(drawingSettingsProvider);
     final notifier = ref.read(drawingSettingsProvider.notifier);
+    final drawingModeActive = settings.color != null && !settings.isEraser;
     return Stack(
       alignment: Alignment.centerLeft,
       children: [
         Row(
           children: [
+            // Drawing mode toggle button
+            IconButton(
+              icon: Icon(Icons.edit, color: Colors.white),
+              tooltip: drawingModeActive ? 'Exit Drawing Mode' : 'Enter Drawing Mode',
+              onPressed: () {
+                if (drawingModeActive) {
+                  notifier.reset();
+                } else {
+                  notifier.setColor(Colors.red); // Enter drawing mode with default color
+                }
+              },
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.all(
+                  drawingModeActive ? Colors.grey[800] : Colors.transparent,
+                ),
+                shape: MaterialStateProperty.all(
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
             // Eraser toggle
             Stack(
               alignment: Alignment.topCenter,
@@ -26,15 +57,15 @@ class DrawingToolbar extends ConsumerWidget {
                     if (!settings.isEraser) {
                       // Switching to eraser
                       if (settings.strokeWidth < 8.0 || settings.strokeWidth > 40.0) {
-                        notifier.setStrokeWidth(20.0);
+                        ref.read(drawingSettingsProvider.notifier).setStrokeWidth(20.0);
                       }
-                      notifier.setEraser(true);
+                      ref.read(drawingSettingsProvider.notifier).setEraser(true);
                     } else {
                       // Switching to pen
                       if (settings.strokeWidth < 1.0 || settings.strokeWidth > 10.0) {
-                        notifier.setStrokeWidth(3.0);
+                        ref.read(drawingSettingsProvider.notifier).setStrokeWidth(3.0);
                       }
-                      notifier.setEraser(false);
+                      ref.read(drawingSettingsProvider.notifier).setEraser(false);
                     }
                   },
                   icon: Icon(
@@ -64,9 +95,9 @@ class DrawingToolbar extends ConsumerWidget {
             ].map((color) => GestureDetector(
                   onTap: () {
                     if (settings.strokeWidth < 1.0 || settings.strokeWidth > 10.0) {
-                      notifier.setStrokeWidth(3.0);
+                      ref.read(drawingSettingsProvider.notifier).setStrokeWidth(3.0);
                     }
-                    notifier.setColor(color);
+                    ref.read(drawingSettingsProvider.notifier).setColor(color);
                   },
                   child: Container(
                     width: 24,
@@ -93,7 +124,7 @@ class DrawingToolbar extends ConsumerWidget {
                   min: 1.0,
                   max: 10.0,
                   divisions: 9,
-                  onChanged: (value) => notifier.setStrokeWidth(value),
+                  onChanged: (value) => ref.read(drawingSettingsProvider.notifier).setStrokeWidth(value),
                 ),
               ),
             const SizedBox(width: 8),

@@ -11,6 +11,7 @@ import '../features/artifact/domain/repositories/review_repository.dart';
 import '../features/artifact/domain/usecases/get_artifacts_usecase.dart';
 import '../features/artifact/domain/usecases/get_reviews_by_artifact_usecase.dart';
 import '../features/artifact/domain/usecases/save_review_usecase.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Hive Box Providers
 final artifactsBoxProvider = Provider<Box<ArtifactModel>>((ref) {
@@ -62,8 +63,10 @@ Future<void> initializeHive() async {
   await Hive.initFlutter();
 
   // DEV ONLY: Delete old boxes to avoid typeId errors
-  await Hive.deleteBoxFromDisk('artifacts');
-  await Hive.deleteBoxFromDisk('artifact_reviews');
+  if (!kIsWeb) {
+    await Hive.deleteBoxFromDisk('artifacts');
+    await Hive.deleteBoxFromDisk('artifact_reviews');
+  }
 
   // Register adapters
   Hive.registerAdapter(ArtifactModelAdapter());

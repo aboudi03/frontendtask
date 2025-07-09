@@ -29,6 +29,11 @@ final reviewForArtifactProvider = FutureProvider.family<Review?, String>((ref, a
   return reviews.isNotEmpty ? reviews.first : null;
 });
 
+final reviewsForArtifactProvider = FutureProvider.family<List<Review>, String>((ref, artifactId) async {
+  final getReviewsByArtifact = ref.watch(getReviewsByArtifactUseCaseProvider);
+  return await getReviewsByArtifact(artifactId);
+});
+
 class ArtifactExpansionState {
   final Artifact? selectedArtifact;
   final bool isExpanded;

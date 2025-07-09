@@ -10,11 +10,13 @@ class DrawingCanvas extends ConsumerStatefulWidget {
   final String artifactId;
   final List<review_entities.DrawingPoint>? initialPoints;
 
-  const DrawingCanvas({
+  DrawingCanvas({
     super.key,
     required this.artifactId,
     this.initialPoints,
-  });
+  }) {
+    print('[DrawingCanvas] CONSTRUCTOR: artifactId=$artifactId, key=$key');
+  }
 
   @override
   DrawingCanvasState createState() => DrawingCanvasState();
@@ -24,6 +26,8 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
   List<review_entities.DrawingPoint?> _points = [];
   bool _isDrawing = false;
   Offset? _mousePosition;
+  Size? _lastPaintSize;
+  Size? get lastPaintSize => _lastPaintSize;
 
   List<review_entities.DrawingPoint?> get points => _points;
 
@@ -33,13 +37,30 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
     if (widget.initialPoints != null) {
       _points = List.from(widget.initialPoints!);
     }
+    print('[DrawingCanvas] initState: artifactId= [35m [1m [4m${widget.artifactId} [0m, initialPoints=${_points.length}');
+  }
+
+  @override
+  void didUpdateWidget(covariant DrawingCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.artifactId != oldWidget.artifactId) {
+      // New artifact opened, reset points
+      if (widget.initialPoints != null) {
+        _points = List.from(widget.initialPoints!);
+      } else {
+        _points = [];
+      }
+      print('[DrawingCanvas] didUpdateWidget: artifactId changed to ${widget.artifactId}, points=${_points.length}');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final drawingSettings = ref.watch(drawingSettingsProvider);
+    print('[DrawingCanvas] build: artifactId=${widget.artifactId}, points=${_points.length}, key=${widget.key}');
     return LayoutBuilder(
       builder: (context, constraints) {
+        _lastPaintSize = Size(constraints.maxWidth, constraints.maxHeight);
         return MouseRegion(
           onHover: (event) {
             setState(() {
@@ -96,11 +117,12 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
         _points.add(review_entities.DrawingPoint(
           point: details.localPosition,
           paint: review_entities.Paint(
-            color: settings.color,
+            color: settings.color ?? Colors.transparent,
             strokeWidth: settings.strokeWidth,
           ),
           isEraser: false,
         ));
+        print('[DrawingCanvas] onPanStart: Added point at ${details.localPosition}, total points=${_points.length}');
       }
     });
   }
@@ -115,11 +137,12 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
           _points.add(review_entities.DrawingPoint(
             point: details.localPosition,
             paint: review_entities.Paint(
-              color: settings.color,
+              color: settings.color ?? Colors.transparent,
               strokeWidth: settings.strokeWidth,
             ),
             isEraser: false,
           ));
+          print('[DrawingCanvas] onPanUpdate: Added point at ${details.localPosition}, total points=${_points.length}');
         }
       });
     }
@@ -129,6 +152,7 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
     setState(() {
       _isDrawing = false;
       _points.add(null); // Add a break between strokes
+      print('[DrawingCanvas] onPanEnd: Stroke ended, total points=${_points.length}');
     });
   }
 
@@ -176,6 +200,7 @@ class DrawingCanvasState extends ConsumerState<DrawingCanvas> {
   }
 
   void clearCanvas() {
+    print('[DrawingCanvas] clearCanvas: artifactId=${widget.artifactId}');
     setState(() {
       _points.clear();
     });

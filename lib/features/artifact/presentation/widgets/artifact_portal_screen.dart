@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/constants/app_constants.dart';
 import '../../data/models/artifact_model.dart';
 import '../providers/artifact_provider.dart';
 import '../../../../di/dependency_injection.dart';
 import 'artifact_grid.dart';
-import 'modern_navbar.dart';
-import 'modern_sidebar.dart';
 import 'drawing_canvas.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'drawing_toolbar.dart';
@@ -16,11 +13,12 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../../domain/entities/review.dart';
 import '../providers/review_provider.dart';
+import 'package:loading_animation_widget/loading_animation_widget.dart';
 
 // Dashed border painter for comment box
-class DashedBorderPainter extends CustomPainter {
+class DashedBorderPainter extends CustomPainter { 
   final Color color;
-  final double strokeWidth;
+  final double strokeWidth;       
   final double gap;
   final double dashLength;
   final double radius;
@@ -72,14 +70,15 @@ class ArtifactPortalScreen extends ConsumerStatefulWidget {
 }
 
 class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
-  bool _isSidebarOpen = false;
-  int _selectedNavIndex = 1; // Artifacts is selected by default
 
   TextEditingController? _commentController;
   String? _lastArtifactId;
 
-  // Add a GlobalKey for DrawingCanvasState
-  final GlobalKey<DrawingCanvasState> _drawingCanvasKey = GlobalKey<DrawingCanvasState>();
+  // Per-artifact GlobalKey map for DrawingCanvasState
+  final Map<String, GlobalKey<DrawingCanvasState>> _drawingCanvasKeys = {};
+  GlobalKey<DrawingCanvasState> _getCanvasKey(String artifactId) {
+    return _drawingCanvasKeys.putIfAbsent(artifactId, () => GlobalKey<DrawingCanvasState>());
+  }
 
   // Toggle for image full view vs scroll view
   bool _isFullView = false;
@@ -88,8 +87,20 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
   bool _showToolbar = true;
   bool _showReviewSection = false;
 
+  late final ScrollController _photoScrollController;
+  late final ScrollController _commentsController;
+
+  @override
+  void initState() {
+    super.initState();
+    _photoScrollController = ScrollController();
+    _commentsController = ScrollController();
+  }
+
   @override
   void dispose() {
+    _photoScrollController.dispose();
+    _commentsController.dispose();
     _commentController?.dispose();
     super.dispose();
   }
@@ -105,35 +116,10 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
           Row(
             children: [
               // Sidebar
-              ModernSidebar(
-                isOpen: _isSidebarOpen,
-                onClose: () => setState(() => _isSidebarOpen = false),
-                selectedIndex: _selectedNavIndex,
-                onItemSelected: (index) {
-                  setState(() {
-                    _selectedNavIndex = index;
-                    if (index != 1) {
-                      // Close expanded artifact when navigating away
-                      ref.read(artifactExpansionProvider.notifier).collapseArtifact();
-                    }
-                  });
-                },
-              ),
               // Main content
               Expanded(
                 child: Column(
                   children: [
-                    // Navbar
-                    ModernNavbar(
-                      title: AppConstants.appName,
-                      onMenuPressed: () => setState(() => _isSidebarOpen = !_isSidebarOpen),
-                      onSearchPressed: () {
-                        // TODO: Implement search
-                      },
-                      onSettingsPressed: () {
-                        // TODO: Implement settings
-                      },
-                    ),
                     // Main content area
                     Expanded(
                       child: Stack(
@@ -174,117 +160,245 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
             ],
           ),
           // Modal overlay for expanded artifact
-          if (expansionState.isExpanded && expansionState.selectedArtifact != null)
-            Consumer(
-              builder: (context, ref, _) {
-                final artifactsAsync = ref.watch(artifactsProvider);
-                return artifactsAsync.when(
-                  data: (artifacts) {
-                    final artifact = artifacts.firstWhere(
-                      (a) => a.id == expansionState.selectedArtifact!.id,
-                      orElse: () => expansionState.selectedArtifact!,
-                    );
-                    return Positioned.fill(
-                      child: GestureDetector(
-                        onTap: () => ref.read(artifactExpansionProvider.notifier).collapseArtifact(),
-                        child: Container(
-                          color: Colors.black.withOpacity(0.7),
-                          child: Center(
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 1600),
+            reverseDuration: const Duration(milliseconds: 400),
+            switchInCurve: Curves.easeOutBack,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.95, end: 1.0).animate(animation),
+                  child: child,
+                ),
+              );
+            },
+            child: (expansionState.isExpanded && expansionState.selectedArtifact != null)
+                ? Consumer(
+                    key: ValueKey('expanded-${expansionState.selectedArtifact!.id}'),
+                    builder: (context, ref, _) {
+                      final artifactsAsync = ref.watch(artifactsProvider);
+                      return artifactsAsync.when(
+                        data: (artifacts) {
+                          final artifact = artifacts.firstWhere(
+                            (a) => a.id == expansionState.selectedArtifact!.id,
+                            orElse: () => expansionState.selectedArtifact!,
+                          );
+                          final currentIndex = artifacts.indexWhere((a) => a.id == artifact.id);
+                          final prevIndex = (currentIndex - 1 + artifacts.length) % artifacts.length;
+                          final nextIndex = (currentIndex + 1) % artifacts.length;
+                          final prevArtifact = artifacts[prevIndex];
+                          final nextArtifact = artifacts[nextIndex];
+                          return Positioned.fill(
                             child: GestureDetector(
-                              onTap: () {}, // Prevent tap from propagating to background
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.of(context).size.width * 0.9,
-                                  maxHeight: MediaQuery.of(context).size.height * 0.9,
-                                ),
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.2),
-                                          blurRadius: 24,
-                                          offset: const Offset(0, 8),
-                                        ),
-                                      ],
-                                    ),
-                                    padding: const EdgeInsets.all(24),
-                                    child: Stack(
-                                      children: [
-                                        SingleChildScrollView(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              // Artifact preview - fixed max height
-                                              SizedBox(
-                                                height: 420,
-                                                child: _buildArtifactPreviewWithKey(artifact),
-                                              ),
-                                              const SizedBox(height: 16),
-                                              // Review section
-                                              _buildReviewFormWithSave(artifact),
-                                              const SizedBox(height: 8),
-                                              SizedBox(
-                                                width: double.infinity,
-                                                child: OutlinedButton.icon(
-                                                  icon: const Icon(Icons.history),
-                                                  label: const Text('Previously Saved Comments'),
-                                                  onPressed: () async {
-                                                    showDialog(
-                                                      context: context,
-                                                      builder: (context) {
-                                                        return _PreviousReviewsDialog(artifactId: artifact.id);
-                                                      },
-                                                    );
-                                                  },
+                              onTap: () => ref.read(artifactExpansionProvider.notifier).collapseArtifact(),
+                              child: Container(
+                                color: Colors.black.withOpacity(0.7),
+                                child: Row(
+                                  children: [
+                                    // Left preview (previous artifact)
+                                    if (artifacts.length > 1)
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: SizedBox(
+                                                width: MediaQuery.of(context).size.width * 0.1,
+                                                child: Text(
+                                                  prevArtifact.name,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500, overflow: TextOverflow.ellipsis),
+                                                  maxLines: 2,
                                                 ),
                                               ),
-                                              const SizedBox(height: 16), // Extra bottom padding
-                                            ],
+                                            ),
+                                            GestureDetector(
+                                              onTap: () {
+                                                ref.read(artifactExpansionProvider.notifier).expandArtifact(prevArtifact);
+                                              },
+                                              child: Container(
+                                                width: MediaQuery.of(context).size.width * 0.1,
+                                                height: MediaQuery.of(context).size.height * 0.42,
+                                                margin: EdgeInsets.only(left: 0),
+                                                alignment: Alignment.centerLeft,
+                                                child: Opacity(
+                                                  opacity: 0.7,
+                                                  child: SizedBox(
+                                                    width: MediaQuery.of(context).size.width * 0.1,
+                                                    height: MediaQuery.of(context).size.height * 0.42,
+                                                    child: ClipRRect(
+                                                      borderRadius: BorderRadius.circular(16),
+                                                      child: _buildArtifactPreview(prevArtifact),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    // Left navigation button
+                                    if (artifacts.length > 1)
+                                      Container(
+                                        alignment: Alignment.center,
+                                        height: MediaQuery.of(context).size.height * 0.8,
+                                        child: IconButton(
+                                          icon: Icon(Icons.chevron_left, size: 36, color: Colors.black.withOpacity(0.7)),
+                                          onPressed: () {
+                                            ref.read(artifactExpansionProvider.notifier).expandArtifact(prevArtifact);
+                                          },
+                                          style: ButtonStyle(
+                                            backgroundColor: MaterialStateProperty.all(Colors.white.withOpacity(0.7)),
+                                            shape: MaterialStateProperty.all(CircleBorder()),
+                                            elevation: MaterialStateProperty.all(4),
                                           ),
                                         ),
-                                        // Close button
-                                        Positioned(
-                                          top: 0,
-                                          right: 0,
-                                          child: IconButton(
-                                            icon: const Icon(Icons.close_rounded, size: 28),
-                                            color: Colors.grey.shade700,
-                                            onPressed: () => ref.read(artifactExpansionProvider.notifier).collapseArtifact(),
-                                            tooltip: 'Close',
+                                      ),
+                                    // Center modal (main artifact)
+                                    Expanded(
+                                      child: Center(
+                                        child: GestureDetector(
+                                          onTap: () {}, // Prevent tap from propagating to background
+                                          child: Container(
+                                            width: MediaQuery.of(context).size.width * 0.7,
+                                            height: MediaQuery.of(context).size.height * 0.8,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(20),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withOpacity(0.2),
+                                                  blurRadius: 24,
+                                                  offset: const Offset(0, 8),
+                                                ),
+                                              ],
+                                            ),
+                                            padding: const EdgeInsets.all(24),
+                                            child: Column(
+                                              children: [
+                                                Flexible(
+                                                  flex: 6, // 60% of space
+                                                  child: Hero(
+                                                    tag: artifact.id,
+                                                    child: SizedBox(
+                                                      width: double.infinity,
+                                                      child: _buildArtifactPreviewWithKey(artifact),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Flexible(
+                                                  flex: 3, // 30% of space
+                                                  child: Scrollbar(
+                                                    controller: _commentsController,
+                                                    thumbVisibility: true,
+                                                    child: ListView(
+                                                      controller: _commentsController,
+                                                      padding: EdgeInsets.zero,
+                                                      children: [
+                                                        _ArtifactCommentsFeed(artifactId: artifact.id),
+                                                        const SizedBox(height: 8),
+                                                        _buildReviewFormWithSave(artifact),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
                                         ),
-                                      ],
+                                      ),
                                     ),
-                                  ),
+                                    // Right navigation button
+                                    if (artifacts.length > 1)
+                                      Container(
+                                        alignment: Alignment.center,
+                                        height: MediaQuery.of(context).size.height * 0.8,
+                                        child: IconButton(
+                                          icon: Icon(Icons.chevron_right, size: 36, color: Colors.black.withOpacity(0.7)),
+                                          onPressed: () {
+                                            ref.read(artifactExpansionProvider.notifier).expandArtifact(nextArtifact);
+                                          },
+                                          style: ButtonStyle(
+                                            backgroundColor: MaterialStateProperty.all(Colors.white.withOpacity(0.7)),
+                                            shape: MaterialStateProperty.all(CircleBorder()),
+                                            elevation: MaterialStateProperty.all(4),
+                                          ),
+                                        ),
+                                      ),
+                                    // Right preview (next artifact)
+                                    if (artifacts.length > 1)
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: SizedBox(
+                                                width: MediaQuery.of(context).size.width * 0.1,
+                                                child: Text(
+                                                  nextArtifact.name,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500, overflow: TextOverflow.ellipsis),
+                                                  maxLines: 2,
+                                                ),
+                                              ),
+                                            ),
+                                            GestureDetector(
+                                              onTap: () {
+                                                ref.read(artifactExpansionProvider.notifier).expandArtifact(nextArtifact);
+                                              },
+                                              child: Container(
+                                                width: MediaQuery.of(context).size.width * 0.1,
+                                                height: MediaQuery.of(context).size.height * 0.42,
+                                                margin: EdgeInsets.only(right: 0),
+                                                alignment: Alignment.centerRight,
+                                                child: Opacity(
+                                                  opacity: 0.7,
+                                                  child: SizedBox(
+                                                    width: MediaQuery.of(context).size.width * 0.1,
+                                                    height: MediaQuery.of(context).size.height * 0.42,
+                                                    child: ClipRRect(
+                                                      borderRadius: BorderRadius.circular(16),
+                                                      child: _buildArtifactPreview(nextArtifact),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, st) => const SizedBox.shrink(),
-                );
-              },
-            ),
+                          );
+                        },
+                        loading: () => const Center(child: CircularProgressIndicator()),
+                        error: (e, st) => const SizedBox.shrink(),
+                      );
+                    },
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildArtifactPreview(artifact) {
+    print('USING _buildArtifactPreview for artifact  [32m${artifact.id} [0m');
     return Consumer(
       builder: (context, ref, _) {
         final reviewAsync = ref.watch(reviewForArtifactProvider(artifact.id));
         return reviewAsync.when(
           data: (review) {
-            final initialPoints = review?.annotations;
             switch (artifact.type) {
               case ArtifactType.image:
                 return Container(
@@ -312,18 +426,48 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                                   child: Icon(Icons.broken_image, size: 64, color: Colors.grey),
                                 ),
                               ),
-                        Positioned.fill(
-                          child: DrawingCanvas(
-                            artifactId: artifact.id,
-                            initialPoints: initialPoints,
-                          ),
-                        ),
                       ],
                     ),
                   ),
                 );
               case ArtifactType.document:
-                return _buildDocumentPreview(artifact, initialPoints);
+                return Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.grey[100],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      children: [
+                        artifact.path.startsWith('assets/')
+                            ? SfPdfViewer.asset(
+                                artifact.path,
+                                key: ValueKey(artifact.path),
+                                enableDoubleTapZooming: true,
+                                enableTextSelection: false,
+                                canShowScrollHead: true,
+                                canShowScrollStatus: true,
+                                pageSpacing: 4,
+                                pageLayoutMode: PdfPageLayoutMode.single,
+                                scrollDirection: PdfScrollDirection.vertical,
+                              )
+                            : SfPdfViewer.file(
+                                File(artifact.path),
+                                key: ValueKey(artifact.path),
+                                enableDoubleTapZooming: true,
+                                enableTextSelection: false,
+                                canShowScrollHead: true,
+                                canShowScrollStatus: true,
+                                pageSpacing: 4,
+                                pageLayoutMode: PdfPageLayoutMode.single,
+                                scrollDirection: PdfScrollDirection.vertical,
+                              ),
+                        // No DrawingCanvas here for preview (only in modal)
+                      ],
+                    ),
+                  ),
+                );
               case ArtifactType.video:
                 return _buildVideoPreview(artifact);
               default:
@@ -338,6 +482,8 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
   }
 
   Widget _buildArtifactPreviewWithKey(artifact) {
+    print('USING _buildArtifactPreviewWithKey for artifact  [35m${artifact.id} [0m');
+    final canvasKey = _getCanvasKey(artifact.id); // <-- assign once here
     return Consumer(
       builder: (context, ref, _) {
         final reviewAsync = ref.watch(reviewForArtifactProvider(artifact.id));
@@ -346,7 +492,6 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
             final initialPoints = review?.annotations;
             switch (artifact.type) {
               case ArtifactType.image:
-                // Debug print for which path is being used
                 print('Artifact image path: ${artifact.path}');
                 return Stack(
                   children: [
@@ -391,7 +536,7 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                                               ); })(),
                                     Positioned.fill(
                                       child: DrawingCanvas(
-                                        key: _drawingCanvasKey,
+                                        key: canvasKey,
                                         artifactId: artifact.id,
                                         initialPoints: initialPoints,
                                       ),
@@ -437,7 +582,7 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                                                 ); })(),
                                       Positioned.fill(
                                         child: DrawingCanvas(
-                                          key: _drawingCanvasKey,
+                                          key: canvasKey,
                                           artifactId: artifact.id,
                                           initialPoints: initialPoints,
                                         ),
@@ -631,7 +776,116 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                   ],
                 );
               case ArtifactType.document:
-                return _buildDocumentPreviewWithKey(artifact, initialPoints);
+                final isAsset = artifact.path.startsWith('assets/');
+                final pdfWidget = isAsset
+                    ? SfPdfViewer.asset(
+                        artifact.path,
+                        key: ValueKey(artifact.path),
+                        canShowScrollHead: false,
+                        canShowScrollStatus: false,
+                        enableDoubleTapZooming: false,
+                        pageLayoutMode: PdfPageLayoutMode.single,
+                        scrollDirection: PdfScrollDirection.vertical,
+                      )
+                    : SfPdfViewer.file(
+                        File(artifact.path),
+                        key: ValueKey(artifact.path),
+                        canShowScrollHead: false,
+                        canShowScrollStatus: false,
+                        enableDoubleTapZooming: false,
+                        pageLayoutMode: PdfPageLayoutMode.single,
+                        scrollDirection: PdfScrollDirection.vertical,
+                      );
+                final settings = ref.watch(drawingSettingsProvider);
+                final drawingModeActive = settings.isEraser || settings.color != null; // true if pen or eraser is active
+                return SizedBox(
+                  height: 420,
+                  child: Stack(
+                    children: [
+                      pdfWidget,
+                      IgnorePointer(
+                        ignoring: !drawingModeActive, // Only allow drawing when a tool is active
+                        child: ClipRect(
+                          child: SizedBox.expand(
+                            child: DrawingCanvas(
+                              key: canvasKey,
+                              artifactId: artifact.id,
+                              initialPoints: initialPoints,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Toolbar overlays as before
+                      if (_showToolbar)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.25),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 32,
+                                    child: DrawingToolbar(),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
+                                  tooltip: 'Hide Toolbar',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  onPressed: () {
+                                    setState(() {
+                                      _showToolbar = false;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (!_showToolbar)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 8,
+                          child: Center(
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _showToolbar = true;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.25),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.brush, color: Colors.white, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Show Toolbar', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                    SizedBox(width: 2),
+                                    Icon(Icons.keyboard_arrow_up, color: Colors.white, size: 16),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
               case ArtifactType.video:
                 return _buildVideoPreview(artifact);
               default:
@@ -642,125 +896,6 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
           error: (e, st) => _buildPlaceholder(artifact),
         );
       },
-    );
-  }
-
-  Widget _buildDocumentPreview(artifact, initialPoints) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.grey[100],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          children: [
-            SfPdfViewer.asset(
-              artifact.path,
-              key: ValueKey(artifact.path),
-              enableDoubleTapZooming: true,
-              enableTextSelection: false,
-              canShowScrollHead: true,
-              canShowScrollStatus: true,
-              pageSpacing: 4,
-              pageLayoutMode: PdfPageLayoutMode.single,
-              scrollDirection: PdfScrollDirection.vertical,
-            ),
-            Positioned.fill(
-              child: DrawingCanvas(
-                artifactId: artifact.id,
-                initialPoints: initialPoints,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDocumentPreviewWithKey(artifact, initialPoints) {
-    return Stack(
-      children: [
-        SfPdfViewer.asset(
-          artifact.path,
-          key: ValueKey(artifact.path),
-          enableDoubleTapZooming: true,
-          enableTextSelection: false,
-          canShowScrollHead: true,
-          canShowScrollStatus: true,
-          pageSpacing: 4,
-          pageLayoutMode: PdfPageLayoutMode.single,
-          scrollDirection: PdfScrollDirection.vertical,
-        ),
-        Positioned.fill(
-          child: DrawingCanvas(
-            key: _drawingCanvasKey,
-            artifactId: artifact.id,
-            initialPoints: initialPoints,
-          ),
-        ),
-        // Toolbar overlay at the bottom
-        if (_showToolbar)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.25),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  Expanded(child: DrawingToolbar()),
-                  IconButton(
-                    icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
-                    tooltip: 'Hide Toolbar',
-                    onPressed: () {
-                      setState(() {
-                        _showToolbar = false;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (!_showToolbar)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 8,
-            child: Center(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _showToolbar = true;
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.brush, color: Colors.white, size: 18),
-                      SizedBox(width: 6),
-                      Text('Show Toolbar', style: TextStyle(color: Colors.white, fontSize: 13)),
-                      SizedBox(width: 2),
-                      Icon(Icons.keyboard_arrow_up, color: Colors.white, size: 18),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 
@@ -855,10 +990,10 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                   // TODO: Update the artifact to use the new image and mark as edited
                   // Show a snackbar for now
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Save as Edited Image: Not yet implemented')),
+                    const SnackBar(content: Text('Save : Not yet implemented')),
                   );
                 },
-                child: const Text('Save as Edited Image'),
+                child: const Text('Save'),
               ),
             ),
             const SizedBox(height: 8),
@@ -885,6 +1020,7 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
 
   Widget _buildReviewFormWithSave(artifact) {
     final artifactId = artifact.id;
+    final canvasKey = _getCanvasKey(artifactId); // <-- use same key as preview
     return Consumer(
       builder: (context, ref, child) {
         final reviewAsync = ref.watch(reviewForArtifactProvider(artifactId));
@@ -927,8 +1063,7 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            // (Removed old DrawingToolbar here)
-            // Save as Edited Image button
+            // Post Comment button
             SizedBox(
               width: double.infinity,
               height: 40,
@@ -941,32 +1076,26 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                 ),
                 onPressed: () async {
                   try {
-                    final points = _drawingCanvasKey.currentState?.points ?? [];
                     final comment = _commentController?.text ?? '';
-                    final newPath = await _renderAndSaveEditedImage(
-                      baseImagePath: artifact.path,
-                      points: points,
-                      comment: comment,
-                      artifactId: artifact.id,
-                    );
-                    
-                    // Save the review to the database
+                    print('DEBUG: Attempting to save comment: "$comment" for artifact: ${artifact.id}');
+                    if (comment.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter a comment.')),
+                      );
+                      return;
+                    }
                     final review = Review.create(
                       artifactId: artifact.id,
                       comment: comment,
-                      annotations: points.whereType<DrawingPoint>().toList(),
+                      annotations: [], // Only comment, no drawing
                     );
                     final saveReviewUseCase = ref.read(saveReviewUseCaseProvider);
                     await saveReviewUseCase(review);
-                    
-                    // Update the artifact path
-                    final artifactRepository = ref.read(artifactRepositoryProvider);
-                    await artifactRepository.updateArtifact(artifact.copyWith(path: newPath));
-                    ref.read(refreshTriggerProvider.notifier).state++;
-                    ref.invalidate(artifactsProvider);
-                    ref.read(artifactExpansionProvider.notifier).expandArtifact(artifact.copyWith(path: newPath));
+                    ref.invalidate(reviewForArtifactProvider(artifact.id));
+                    ref.invalidate(reviewsForArtifactProvider(artifact.id));
+                    _commentController?.clear();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Artifact updated with edited image')),
+                      const SnackBar(content: Text('Comment posted!')),
                     );
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -974,9 +1103,89 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                     );
                   }
                 },
-                child: const Text('Save as Edited Image'),
+                child: const Text('Post Comment'),
               ),
             ),
+            const SizedBox(height: 8),
+            // Save Drawing button (only for images)
+            if (artifact.type == ArtifactType.image)
+              SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    // Show custom animated loader
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(32),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              LoadingAnimationWidget.staggeredDotsWave(
+                                color: const Color(0xFF36383A),
+                                size: 48,
+                              ),
+                              const SizedBox(height: 18),
+                              const Text('Saving drawing...', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                    try {
+                      print('Save Drawing: using canvasKey=$canvasKey, currentState= [33m${canvasKey.currentState} [0m');
+                      final points = canvasKey.currentState?.points ?? [];
+                      final displaySize = canvasKey.currentState?.lastPaintSize;
+                      print('Save Drawing: points=${points.length}, artifactId=$artifactId, displaySize=$displaySize, canvasKey=$canvasKey');
+                      if (points.isEmpty) {
+                        Navigator.of(context, rootNavigator: true).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('No drawing to save.')),
+                        );
+                        return;
+                      }
+                      final newPath = await _renderAndSaveEditedImage(
+                        baseImagePath: artifact.path,
+                        points: points,
+                        comment: '', // No comment
+                        artifactId: artifact.id,
+                        displaySize: displaySize, // <-- pass display size
+                      );
+                      // Save the review with only drawing/annotations
+                      final review = Review.create(
+                        artifactId: artifact.id,
+                        comment: '',
+                        annotations: points.whereType<DrawingPoint>().toList(),
+                      );
+                      final saveReviewUseCase = ref.read(saveReviewUseCaseProvider);
+                      await saveReviewUseCase(review);
+                      // Update the artifact path
+                      final artifactRepository = ref.read(artifactRepositoryProvider);
+                      await artifactRepository.updateArtifact(artifact.copyWith(path: newPath));
+                      ref.read(refreshTriggerProvider.notifier).state++;
+                      ref.invalidate(artifactsProvider);
+                      ref.read(artifactExpansionProvider.notifier).expandArtifact(artifact.copyWith(path: newPath));
+                      Navigator.of(context, rootNavigator: true).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Drawing saved!')),
+                      );
+                    } catch (e) {
+                      Navigator.of(context, rootNavigator: true).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: $e')),
+                      );
+                    }
+                  },
+                  child: const Text('Save Drawing'),
+                ),
+              ),
             const SizedBox(height: 8),
             // Reset Drawing button
             SizedBox(
@@ -988,14 +1197,15 @@ class _ArtifactPortalScreenState extends ConsumerState<ArtifactPortalScreen> {
                     // Find the original path (assets/)
                     final originalPath = artifact.path.startsWith('assets/')
                         ? artifact.path
-                        : 'assets/images/${artifact.name}'; // keep for path, not for display
+                        : 'assets/images/${artifact.name}';
                     final artifactRepository = ref.read(artifactRepositoryProvider);
                     await artifactRepository.updateArtifact(artifact.copyWith(path: originalPath));
                     ref.read(refreshTriggerProvider.notifier).state++;
                     ref.invalidate(artifactsProvider);
                     ref.read(artifactExpansionProvider.notifier).expandArtifact(artifact.copyWith(path: originalPath));
                     // Clear the drawing canvas
-                    _drawingCanvasKey.currentState?.clearCanvas();
+                    print('Reset Drawing: using canvasKey=$canvasKey, currentState=${canvasKey.currentState}');
+                    canvasKey.currentState?.clearCanvas();
                     // Clear the comment field
                     _commentController?.clear();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1023,6 +1233,7 @@ Future<String> _renderAndSaveEditedImage({
   required List points,
   required String comment,
   required String artifactId,
+  Size? displaySize, // <-- Add displaySize parameter
 }) async {
   // Helper to convert custom paint to ui.Paint
   ui.StrokeCap _toUiStrokeCap(dynamic cap) {
@@ -1067,6 +1278,8 @@ Future<String> _renderAndSaveEditedImage({
   // Set up canvas size
   final width = baseImage.width;
   final height = baseImage.height + 60; // Extra space for comment
+  final scaleX = width / (displaySize?.width ?? width);
+  final scaleY = height / (displaySize?.height ?? height);
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
 
@@ -1082,7 +1295,9 @@ Future<String> _renderAndSaveEditedImage({
     final p1 = current.point;
     final p2 = next.point;
     if (p1 != null && p2 != null) {
-      canvas.drawLine(p1, p2, paint);
+      final scaledP1 = Offset(p1.dx * scaleX, p1.dy * scaleY);
+      final scaledP2 = Offset(p2.dx * scaleX, p2.dy * scaleY);
+      canvas.drawLine(scaledP1, scaledP2, paint);
     }
   }
 
@@ -1292,6 +1507,91 @@ class _ArtifactReviewHistory extends ConsumerWidget {
               // Optionally, show a thumbnail of the annotated version if available
             );
           }).toList(),
+        );
+      },
+    );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    if (difference.inDays > 0) {
+      return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hour${difference.inHours == 1 ? '' : 's'} ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} minute${difference.inMinutes == 1 ? '' : 's'} ago';
+    } else {
+      return 'Just now';
+    }
+  }
+} 
+
+class _ArtifactCommentsFeed extends ConsumerWidget {
+  final String artifactId;
+  const _ArtifactCommentsFeed({required this.artifactId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reviewsAsync = ref.watch(reviewsForArtifactProvider(artifactId));
+    return reviewsAsync.when(
+      loading: () => const SizedBox(
+        height: 180,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, st) => const SizedBox(
+        height: 60,
+        child: Center(child: Text('Error loading comments', style: TextStyle(color: Colors.red))),
+      ),
+      data: (reviews) {
+        final filtered = reviews.where((review) => review.comment.trim().isNotEmpty).toList();
+        print('DEBUG: Comments feed for artifact $artifactId: ${filtered.map((r) => r.comment).toList()}');
+        if (filtered.isEmpty) {
+          return const SizedBox(
+            height: 60,
+            child: Center(child: Text('No comments yet.', style: TextStyle(color: Colors.grey))),
+          );
+        }
+        return SizedBox(
+          height: 180,
+          child: Scrollbar(
+            thumbVisibility: true,
+            child: ListView.builder(
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final review = filtered[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 2.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const CircleAvatar(
+                        radius: 14,
+                        backgroundColor: Colors.grey,
+                        child: Icon(Icons.person, size: 16, color: Colors.white),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              review.comment,
+                              style: const TextStyle(fontSize: 15, color: Colors.black87),
+                            ),
+                            Text(
+                              _formatDateTime(review.createdAt),
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
         );
       },
     );

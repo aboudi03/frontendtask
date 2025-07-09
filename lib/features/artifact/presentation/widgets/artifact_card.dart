@@ -65,92 +65,95 @@ class _ArtifactCardState extends State<ArtifactCard> {
 
     return Stack(
       children: [
-        AnimatedContainer(
-          duration: AppConstants.cardExpandDuration,
-          curve: Curves.easeInOut,
-          transform: Matrix4.identity()..scale(scale),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(widget.isExpanded ? 16 : 8),
-            boxShadow: shadow,
-          ),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: ClipRRect(
+        Hero(
+          tag: widget.artifact.id,
+          child: AnimatedContainer(
+            duration: AppConstants.cardExpandDuration,
+            curve: Curves.easeInOut,
+            transform: Matrix4.identity()..scale(scale),
+            decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(widget.isExpanded ? 16 : 8),
-              child: Stack(
-                children: [
-                  // Artifact Image/Preview
-                  Positioned.fill(
-                    child: _buildArtifactPreview(),
-                  ),
-                  // Overlay with artifact info
-                  Positioned.fill(
-                    child: AnimatedContainer(
-                      duration: AppConstants.cardExpandDuration,
-                      color: overlay,
+              boxShadow: shadow,
+            ),
+            child: GestureDetector(
+              onTap: widget.onTap,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(widget.isExpanded ? 16 : 8),
+                child: Stack(
+                  children: [
+                    // Artifact Image/Preview
+                    Positioned.fill(
+                      child: _buildArtifactPreview(),
                     ),
-                  ),
-                  // Artifact info
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(8.0),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withOpacity(0.92), // darker shadow
+                    // Overlay with artifact info
+                    Positioned.fill(
+                      child: AnimatedContainer(
+                        duration: AppConstants.cardExpandDuration,
+                        color: overlay,
+                      ),
+                    ),
+                    // Artifact info
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8.0),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.92), // darker shadow
+                            ],
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    widget.artifact.name,
+                                    style: infoTextStyle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.artifact.type.displayName,
+                              style: captionStyle,
+                            ),
                           ],
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  widget.artifact.name,
-                                  style: infoTextStyle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.artifact.type.displayName,
-                            style: captionStyle,
-                          ),
-                        ],
-                      ),
                     ),
-                  ),
-                  // Expand indicator
-                  if (!widget.isExpanded)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Icon(
-                          Icons.fullscreen,
-                          color: Colors.white,
-                          size: 14,
+                    // Expand indicator
+                    if (!widget.isExpanded)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            Icons.fullscreen,
+                            color: Colors.white,
+                            size: 14,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -309,7 +312,7 @@ class _EditedBadge extends ConsumerWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Text(
-            ':edited:',
+            'edited',
             style: TextStyle(
               color: Colors.white,
               fontSize: 12,
